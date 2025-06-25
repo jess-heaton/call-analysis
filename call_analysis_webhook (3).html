@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call Data Analysis Tool</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .date-section {
+            background-color: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        .date-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .date-input-group {
+            margin: 20px 0;
+        }
+        .date-input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        .date-input-group input {
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: 'Courier New', monospace;
+            min-width: 160px;
+        }
+        .date-input-group input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        .date-help {
+            font-size: 14px;
+            color: #666;
+            margin-top: 8px;
+        }
+        .analyze-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 18px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            transition: background-color 0.3s;
+            min-width: 200px;
+        }
+        .analyze-btn:hover {
+            background-color: #0056b3;
+        }
+        .analyze-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .loading.show {
+            display: block;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-text {
+            font-size: 18px;
+            color: #007bff;
+            font-weight: bold;
+        }
+        .results {
+            background-color: #f8f9fa;
+            padding: 25px;
+            border-radius: 8px;
+            margin-top: 25px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+        }
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+            border: 1px solid #f5c6cb;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📞 Boardwalk Call Data Analysis</h1>
+            <p>Real-time call analytics and voicemail reporting</p>
+        </div>
+        
+        
+        <div class="date-section">
+            <h3>📅 Select Analysis Date</h3>
+            <div class="date-input-group">
+                <label for="dateSelect">Choose Date:</label>
+                <input type="date" id="dateSelect">
+                <div class="date-help">
+                    Analyzes 24-hour period (midnight to midnight) for selected date
+                </div>
+            </div>
+            
+            <button class="analyze-btn" id="analyzeBtn" onclick="fetchAndAnalyze()">
+                🔍 Fetch & Analyze Data
+            </button>
+        </div>
+
+        <div class="loading" id="loadingDiv">
+            <div class="spinner"></div>
+            <div class="loading-text" id="loadingText">Pulling data from Dial9...</div>
+        </div>
+
+        <div id="results" class="results" style="display: none;"></div>
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        const webhookUrl = 'https://hook.eu2.make.com/e2r8j3vky9x1xdc2tqdf82u1rr1rljom';
+        let analysisData = null;
+
+        // Combined fetch and analyze function
+        async function fetchAndAnalyze() {
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const loadingDiv = document.getElementById('loadingDiv');
+            const loadingText = document.getElementById('loadingText');
+            const resultsDiv = document.getElementById('results');
+            const errorDiv = document.getElementById('error');
+
+            try {
+                // Hide previous results and show loading
+                hideMessages();
+                analyzeBtn.disabled = true;
+                loadingDiv.classList.add('show');
+                loadingText.textContent = 'Pulling data from Dial9...';
+
+                // Get selected date and prepare request
+                const selectedDate = document.getElementById('dateSelect').value;
+                if (!selectedDate) {
+                    throw new Error('Please select a date first.');
+                }
+
+                const startDate = selectedDate;
+                const endDate = getNextDay(selectedDate);
+                
+                const requestData = {
+                    "filters": {
+                        "initiated_at": {
+                            "operator": "gte",
+                            "value": startDate
+                        },
+                        "ended_at": {
+                            "operator": "lt",
+                            "value": endDate
+                        }
+                    },
+                    "page": 1,
+                    "per_page": 60
+                };
+
+                // Fetch data from webhook
+                const response = await fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch data (HTTP ${response.status})`);
+                }
+
+                const rawData = await response.text();
+                
+                // Update loading message
+                loadingText.textContent = 'Processing call data...';
+                
+                // Small delay to show the processing message
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Parse and analyze data
+                loadingText.textContent = 'Analyzing patterns...';
+                
+                // Extract JSON from the data
+                const jsonStart = rawData.indexOf('[');
+                const jsonEnd = rawData.lastIndexOf(']') + 1;
+                
+                if (jsonStart === -1 || jsonEnd === 0) {
+                    throw new Error('No valid call data found for this date.');
+                }
+                
+                const jsonString = rawData.substring(jsonStart, jsonEnd);
+                const calls = JSON.parse(jsonString);
+
+                if (!Array.isArray(calls) || calls.length === 0) {
+                    throw new Error('No calls found for the selected date.');
+                }
+
+                // Process call data
+                const callsWithTimes = calls.map(call => {
+                    const date = new Date(call.initiated_at * 1000);
+                    const hour = date.getHours();
+                    
+                    const wentToVoicemail = call.events.some(event => 
+                        event.type === "VoicemailBox"
+                    ) || !call.connected_to_extension;
+                    
+                    let menuChoice = "Unknown";
+                    const menuEvent = call.events.find(event => 
+                        event.type === "Menu" && event.menu_option_chosen
+                    );
+                    if (menuEvent) {
+                        menuChoice = menuEvent.menu_option_chosen;
+                    }
+                    
+                    return {
+                        hour: hour,
+                        timeString: date.toLocaleTimeString('en-GB'),
+                        dateString: date.toLocaleDateString('en-GB'),
+                        wentToVoicemail: wentToVoicemail,
+                        callLength: call.length,
+                        menuChoice: menuChoice
+                    };
+                });
+
+                // Generate analysis
+                loadingText.textContent = 'Generating report...';
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                const analysisResult = generateAnalysis(callsWithTimes, selectedDate);
+                
+                // Show results
+                loadingDiv.classList.remove('show');
+                resultsDiv.textContent = analysisResult;
+                resultsDiv.style.display = 'block';
+                analyzeBtn.disabled = false;
+
+            } catch (error) {
+                loadingDiv.classList.remove('show');
+                showError(`Analysis failed: ${error.message}`);
+                analyzeBtn.disabled = false;
+            }
+        }
+
+        function generateAnalysis(callsWithTimes, selectedDate) {
+            // Hourly statistics
+            const hourlyStats = {};
+            for (let hour = 0; hour < 24; hour++) {
+                hourlyStats[hour] = { totalCalls: 0, voicemailCalls: 0, connectedCalls: 0 };
+            }
+
+            callsWithTimes.forEach(call => {
+                const hour = call.hour;
+                hourlyStats[hour].totalCalls++;
+                if (call.wentToVoicemail) {
+                    hourlyStats[hour].voicemailCalls++;
+                } else {
+                    hourlyStats[hour].connectedCalls++;
+                }
+            });
+
+            // Menu choice statistics
+            const menuStats = {};
+            callsWithTimes.forEach(call => {
+                const choice = call.menuChoice;
+                if (!menuStats[choice]) {
+                    menuStats[choice] = { totalCalls: 0, voicemailCalls: 0, connectedCalls: 0 };
+                }
+                menuStats[choice].totalCalls++;
+                if (call.wentToVoicemail) {
+                    menuStats[choice].voicemailCalls++;
+                } else {
+                    menuStats[choice].connectedCalls++;
+                }
+            });
+
+            // Generate results
+            const dateFormatted = formatDateForDisplay(selectedDate);
+            let output = `=== CALL ANALYSIS FOR ${dateFormatted.toUpperCase()} ===\n\n`;
+            
+            // Menu choice breakdown
+            output += "DEPARTMENT/MENU BREAKDOWN:\n";
+            output += "Department        | Total | Connected | Voicemail | VM Rate\n";
+            output += "------------------|-------|-----------|-----------|--------\n";
+            
+            const sortedMenuChoices = Object.entries(menuStats)
+                .sort((a, b) => b[1].totalCalls - a[1].totalCalls);
+            
+            sortedMenuChoices.forEach(([choice, stats]) => {
+                const vmRate = (stats.voicemailCalls / stats.totalCalls * 100).toFixed(1);
+                const choiceFormatted = choice.padEnd(17);
+                output += `${choiceFormatted}|   ${stats.totalCalls.toString().padStart(2)}  |     ${stats.connectedCalls.toString().padStart(2)}    |     ${stats.voicemailCalls.toString().padStart(2)}    | ${vmRate.padStart(5)}%\n`;
+            });
+            
+            output += "\nHOURLY BREAKDOWN:\n";
+            output += "Hour | Total | Connected | Voicemail | VM Rate\n";
+            output += "-----|-------|-----------|-----------|--------\n";
+
+            for (let hour = 8; hour < 19; hour++) {
+                const stats = hourlyStats[hour];
+                if (stats.totalCalls > 0) {
+                    const vmRate = (stats.voicemailCalls / stats.totalCalls * 100).toFixed(1);
+                    const hourString = hour.toString().padStart(2, '0') + ":00";
+                    output += `${hourString}|   ${stats.totalCalls.toString().padStart(2)}  |     ${stats.connectedCalls.toString().padStart(2)}    |     ${stats.voicemailCalls.toString().padStart(2)}    | ${vmRate.padStart(5)}%\n`;
+                }
+            }
+
+            // Peak hours
+            const peakHours = Object.entries(hourlyStats)
+                .filter(([hour, stats]) => stats.totalCalls > 0)
+                .sort((a, b) => b[1].totalCalls - a[1].totalCalls)
+                .slice(0, 5);
+
+            output += "\nTOP 5 BUSIEST HOURS:\n";
+            peakHours.forEach(([hour, stats], index) => {
+                const hourString = parseInt(hour).toString().padStart(2, '0') + ":00";
+                const vmRate = (stats.voicemailCalls / stats.totalCalls * 100).toFixed(1);
+                output += `${index + 1}. ${hourString} - ${stats.totalCalls} calls (${stats.voicemailCalls} voicemail, ${vmRate}% rate)\n`;
+            });
+
+            // Worst voicemail periods
+            const worstVoicemailHours = Object.entries(hourlyStats)
+                .filter(([hour, stats]) => stats.totalCalls > 2)
+                .sort((a, b) => {
+                    const aRate = a[1].voicemailCalls / a[1].totalCalls;
+                    const bRate = b[1].voicemailCalls / b[1].totalCalls;
+                    return bRate - aRate;
+                })
+                .slice(0, 5);
+
+            output += "\nWORST VOICEMAIL PERIODS:\n";
+            worstVoicemailHours.forEach(([hour, stats], index) => {
+                const hourString = parseInt(hour).toString().padStart(2, '0') + ":00";
+                const vmRate = (stats.voicemailCalls / stats.totalCalls * 100).toFixed(1);
+                output += `${index + 1}. ${hourString} - ${vmRate}% voicemail rate (${stats.voicemailCalls}/${stats.totalCalls} calls)\n`;
+            });
+
+            // Overall summary
+            const totalCalls = callsWithTimes.length;
+            const totalVoicemail = callsWithTimes.filter(call => call.wentToVoicemail).length;
+            const overallVmRate = (totalVoicemail / totalCalls * 100).toFixed(1);
+
+            output += `\nOVERALL SUMMARY:\n`;
+            output += `Total calls: ${totalCalls}\n`;
+            output += `Voicemail calls: ${totalVoicemail}\n`;
+            output += `Overall voicemail rate: ${overallVmRate}%\n`;
+
+            return output;
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            const resultsDiv = document.getElementById('results');
+            
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            resultsDiv.style.display = 'none';
+        }
+
+        function hideMessages() {
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('results').style.display = 'none';
+        }
+
+        // Helper functions
+        function getNextDay(dateString) {
+            const date = new Date(dateString);
+            date.setDate(date.getDate() + 1);
+            return date.toISOString().split('T')[0];
+        }
+
+        function getYesterday() {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            return yesterday.toISOString().split('T')[0];
+        }
+
+        function formatDateForDisplay(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-GB', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+        }
+
+        // Initialize with yesterday's date
+        document.addEventListener('DOMContentLoaded', function() {
+            const yesterday = getYesterday();
+            document.getElementById('dateSelect').value = yesterday;
+        });
+    </script>
+</body>
+</html>
